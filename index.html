@@ -152,6 +152,12 @@
         .leaflet-tooltip.hidden-label {
             display: none !important;
         }
+        .leaflet-tooltip.dynmap-marker-label::before,
+.leaflet-tooltip.player-label::before,
+.leaflet-tooltip.dynmap-marker-label::after,
+.leaflet-tooltip.player-label::after {
+    display: none !important;
+}
     </style>
 </head>
 <body>
@@ -618,6 +624,7 @@
                         direction: 'top',
                         className: 'dynmap-marker-label',
                         offset: [0, 0]
+                        
                     })
                     .addTo(dynmapPinsLayer)
                     .on('error', function(e) { this.setIcon(new L.Icon.Default()); });
