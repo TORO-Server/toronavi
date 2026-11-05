@@ -103,7 +103,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     } catch (error) {
         console.error("マップ初期化エラー:", error);
         if (loadingMessageMap) loadingMessageMap.textContent = "マップの読み込みに失敗しました。";
-        mapDiv.innerHTML = `<div class="error-message">マップの初期化に失敗しました: ${error.message}</div>`;
+        const errorBox = document.createElement('div');
+        errorBox.className = 'error-message';
+        errorBox.textContent = `マップの初期化に失敗しました: ${error.message}`;
+        mapDiv.replaceChildren(errorBox);
         return;
     }
 
@@ -128,6 +131,33 @@ document.addEventListener('DOMContentLoaded', async () => {
     fetchAndUpdatePlayerData();
 });
 
+// --- 外部データの文字列の表示 ---
+// Leaflet のポップアップとツールチップは、文字列を HTML として扱う。Dynmap から来る文字列は要素にして渡す
+function textSpan(text) {
+    const span = document.createElement('span');
+    span.textContent = text;
+    return span;
+}
+
+function popupWithCoords(titleTag, title, coordsText) {
+    const box = document.createElement('div');
+    const titleEl = document.createElement(titleTag);
+    titleEl.textContent = title;
+    box.append(titleEl, document.createElement('br'), coordsText);
+    return box;
+}
+
+// Dynmap のラベルや説明は HTML のことがある。DOMParser はスクリプトも画像も動かさないので、文字だけを取り出して使う
+function plainLabel(value, fallback) {
+    if (typeof value !== 'string' || value === '') return String(fallback);
+    const text = new DOMParser().parseFromString(value, 'text/html').body.textContent.trim();
+    return text || String(fallback);
+}
+
+function playerAvatarUrl(account) {
+    return `https://mc-heads.net/avatar/${encodeURIComponent(account)}`;
+}
+
 // --- プレイヤー選択モーダル ---
 function openPlayerSelectModal() {
     updateModalPlayerList();
@@ -148,10 +178,12 @@ function updateModalPlayerList() {
                     mainWorldPlayers.forEach(player => {
                         const li = document.createElement('li');
                         li.className = 'player-item';
-                        li.innerHTML = `
-                            <img src="https://mc-heads.net/avatar/${player.account}" class="player-avatar" alt="${player.account}" onerror="this.style.display='none'">
-                            <span>${player.account}</span>
-                        `;
+                        const avatar = document.createElement('img');
+                        avatar.className = 'player-avatar';
+                        avatar.alt = player.account;
+                        avatar.addEventListener('error', () => { avatar.style.display = 'none'; });
+                        avatar.src = playerAvatarUrl(player.account);
+                        li.append(avatar, textSpan(player.account));
                         li.addEventListener('click', () => {
                             selectedPlayerForTracking = player.account;
                             closePlayerSelectModal();
@@ -297,7 +329,7 @@ function parseAndStoreDynmapMarkers(rawData) {
                 if (marker && typeof marker.x === 'number' && typeof marker.y === 'number' && typeof marker.z === 'number') {
                     allPinsData.push({
                         id: markerId, x: marker.x, y: marker.y, z: marker.z,
-                        label: marker.label || marker.markup || markerId,
+                        label: plainLabel(marker.label, markerId),
                         icon: marker.icon || 'default'
                     });
                 }
@@ -316,7 +348,7 @@ function parseAndStoreDynmapMarkers(rawData) {
                     }
                     if (points.length === line.x.length) {
                         allLinesData.push({
-                            id: lineId, points: points, label: line.label || line.desc || lineId,
+                            id: lineId, points: points, label: plainLabel(line.label || line.desc, lineId),
                             color: formatColor(line.color, '#FFFFFF'),
                             weight: line.weight || 2
                         });
@@ -342,7 +374,7 @@ function parseAndStoreDynmapMarkers(rawData) {
                             closedPoints.push(closedPoints[0]);
                         }
                         allLinesData.push({
-                            id: areaId, points: closedPoints, label: area.label || area.desc || areaId,
+                            id: areaId, points: closedPoints, label: plainLabel(area.label || area.desc, areaId),
                             color: formatColor(area.strokecolor || area.color, '#AAAAAA'),
                             weight: area.strokeweight || area.weight || 1,
                             isAreaOutline: true
@@ -380,7 +412,7 @@ function displayDynmapFeatures() {
 
     allPinsData.forEach(pin => {
         const coords = dynmapToLeafletCoords(pin.x, pin.z);
-        const iconUrl = `${DYNMAP_ICON_BASE_URL}${pin.icon}.png`;
+        const iconUrl = `${DYNMAP_ICON_BASE_URL}${encodeURIComponent(pin.icon)}.png`;
         const dynmapIcon = L.icon({
             iconUrl: iconUrl,
             iconSize: [16, 16],
@@ -388,8 +420,8 @@ function displayDynmapFeatures() {
             popupAnchor: [0, -8]
         });
         L.marker(coords, { icon: dynmapIcon })
-            .bindPopup(`<b>${pin.label}</b><br>座標: X:${pin.x.toFixed(0)}, Y:${pin.y.toFixed(0)}, Z:${pin.z.toFixed(0)}`)
-            .bindTooltip(pin.label, {
+            .bindPopup(popupWithCoords('b', pin.label, `座標: X:${pin.x.toFixed(0)}, Y:${pin.y.toFixed(0)}, Z:${pin.z.toFixed(0)}`))
+            .bindTooltip(textSpan(pin.label), {
                 permanent: true,
                 direction: 'top',
                 className: 'dynmap-marker-label',
@@ -403,7 +435,7 @@ function displayDynmapFeatures() {
         const latLngs = line.points.map(p => dynmapToLeafletCoords(p.x, p.z));
         try {
             L.polyline(latLngs, { color: line.color, weight: line.weight })
-                .bindPopup(line.label || `Line ${line.id}`)
+                .bindPopup(textSpan(line.label || `Line ${line.id}`))
                 .addTo(dynmapLinesLayer);
         } catch (e) {
             console.error(`Error drawing polyline for line (id: ${line.id}):`, line, e);
@@ -518,7 +550,7 @@ async function fetchAndUpdatePlayerData() {
                 } else {
                     // 追跡していないときはスキンアイコン
                     playerIcon = L.icon({
-                        iconUrl: `https://mc-heads.net/avatar/${playerData.account}`,
+                        iconUrl: playerAvatarUrl(playerData.account),
                         iconSize: [24, 24],
                         iconAnchor: [12, 12],
                         popupAnchor: [0, -12],
@@ -570,7 +602,7 @@ async function fetchAndUpdatePlayerData() {
 
                     const pCoords = dynmapToLeafletCoords(p.x, p.z);
                     const otherPlayerIcon = L.icon({
-                        iconUrl: `https://mc-heads.net/avatar/${p.account}`,
+                        iconUrl: playerAvatarUrl(p.account),
                         iconSize: [24, 24],
                         iconAnchor: [12, 12],
                         popupAnchor: [0, -12]
@@ -584,8 +616,8 @@ async function fetchAndUpdatePlayerData() {
                             icon: otherPlayerIcon,
                             playerName: p.account
                         })
-                            .bindPopup(`${p.account}<br>X:${p.x.toFixed(0)}, Y:${p.y.toFixed(0)}, Z:${p.z.toFixed(0)}`)
-                            .bindTooltip(p.account, {
+                            .bindPopup(popupWithCoords('span', p.account, `X:${p.x.toFixed(0)}, Y:${p.y.toFixed(0)}, Z:${p.z.toFixed(0)}`))
+                            .bindTooltip(textSpan(p.account), {
                                 permanent: true,
                                 direction: 'top',
                                 className: 'player-label',
