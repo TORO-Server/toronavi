@@ -1,0 +1,12 @@
+{
+  "name": "toronavi",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && esbuild src/script.ts --target=es2020 --charset=utf8 --outfile=script.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "typescript": "^5.8.0"
+  }
+}
